@@ -15,7 +15,10 @@ spec:
     spec:
       containers:
         - name: api-gateway
-          image: ai-gateway:v5
+          image: ai-gateway:v6
           imagePullPolicy: Never
           ports:
             - containerPort: 8000
+          env:
+            - name: APP_REDIS_HOST
+              value: "redis"
