@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: ai-gateway
+data:
+  APP_NAME: "AI Gateway"
+  LOG_LEVEL: "INFO"
+  RATE_LIMIT_PER_MINUTE: "60"

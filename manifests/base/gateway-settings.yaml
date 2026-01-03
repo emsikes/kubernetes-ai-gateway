@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-settings
+  namespace: ai-gateway
+data:
+  settings.json: |
+    {
+      "models": {
+        "default": "llama3.2:1b",
+        "fallback": "gpt-40-mini"
+      },
+      "timeouts": {
+        "inference": 30,
+        "embedding": 10
+      },
+      "features": {
+        "checking_enabled": true,
+        "rate_limiting_enabled": true
+      }
+    }

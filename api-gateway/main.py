@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 import redis
+import json
 
 app = FastAPI(title="AI Gateway")
 
@@ -18,5 +19,44 @@ def redis_test():
    # Send and get value to confirm connectivity
    redis_client.set("test_key", "hello from k8s")
    value = redis_client.get("test_key")
-   return {"redis_value": value}    
+   return {"redis_value": value}   
 
+@app.get("/config")
+def get_config():
+   return {
+      "app_name": os.getenv("APP_NAME", "Unkown"),
+      "log_level": os.getenv("LOG_LEVEL", "INFO"),
+      "rate_limit_per_minute": os.getenv("RATE_LIMIT_PER_MINUTE", "60")
+    } 
+
+@app.get("/providers")
+def list_providers():
+   """Show which LLM providers and configured"""
+   providers = {}
+
+   openai_key = os.getenv("OPENAI_API_KEY", "")
+   anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+   providers["openai"] = {
+      "configured": len(openai_key) > 0,
+      "key_preview": f"{openai_key[:7]}..." if len(openai_key) > 7 else "not set"
+   }
+   providers["anthropic"] = {
+      "configured": len(anthropic_key) > 0,
+      "key_preview": f"{anthropic_key[:7]}..." if len(anthropic_key) > 7 else "not set"
+   }
+   providers["ollama"] = {
+      "configured": True,
+      "key_preview": "no key required (local)"
+   }
+
+   return providers
+
+@app.get("/settings")
+def get_settings():
+   try:
+      with open("/app/config/settings.json", "r") as f:
+         settings = json.load(f)
+      return settings
+   except FileNotFoundError:
+      return {"error": "Settings file not found"}
