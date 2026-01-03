@@ -27,6 +27,8 @@ spec:
           env:
             - name: APP_REDIS_HOST
               value: "redis"
+            - name: OLLAMA_HOST
+              value: "ollama"
           volumeMounts:
             - name: settings-volume
               mountPath: /app/config

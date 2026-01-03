@@ -2,6 +2,11 @@ import os
 from fastapi import FastAPI
 import redis
 import json
+import httpx
+
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
+OLLAMA_URL = f"http://{OLLAMA_HOST}:11434"
 
 app = FastAPI(title="AI Gateway")
 
@@ -60,3 +65,17 @@ def get_settings():
       return settings
    except FileNotFoundError:
       return {"error": "Settings file not found"}
+   
+@app.post("/chat")
+async def chat(request: dict):
+   """Forward chat request to Ollama"""
+   async with httpx.AsyncClient(timeout=60.0) as client:
+      response = await client.post(
+         f"{OLLAMA_URL}/api/generate",
+         json={
+            "model": request.get("model", "llama3.2:1b"),
+            "prompt": request.get("prompt", ""),
+            "stream": False
+         }
+      )
+      return response.json()

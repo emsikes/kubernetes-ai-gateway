@@ -8,3 +8,8 @@ resources:
   - gateway-settings.yaml
   - api-gateway-deployment.yaml
   - api-gateway-service.yaml
+  - ollama-pvc.yaml
+  - ollama-deployment.yaml
+  - ollama-service.yaml
+  - qdrant-statefulset.yaml
+  - qdrant-service.yaml
