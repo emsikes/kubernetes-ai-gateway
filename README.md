@@ -1,82 +1,151 @@
 # Kubernetes AI Gateway
 
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazonwebservices&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)
+![ArgoCD](https://img.shields.io/badge/ArgoCD-EF7B4D?style=for-the-badge&logo=argo&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white)
-![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)
-![Anthropic](https://img.shields.io/badge/Anthropic-D4A27F?style=for-the-badge&logo=anthropic&logoColor=white)
 
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Status](https://img.shields.io/badge/Status-In%20Development-yellow)
-![CKAD](https://img.shields.io/badge/CKAD-Exam%20Prep-blue)
 
-A production-style AI/LLM inference platform built on Kubernetes, designed as a hands-on learning project for CKAD (Certified Kubernetes Application Developer) exam preparation.
+A production-grade **Unified LLM Gateway** that routes requests to multiple AI providers based on cost, compliance, and capability requirements. Built on Kubernetes with GitOps deployment patterns.
 
 ## Project Overview
 
-This project deploys a multi-service AI inference platform that exercises core Kubernetes concepts through real-world patterns. Rather than abstract examples, each component serves a practical purpose in an LLM gateway architecture.
+This project demonstrates enterprise patterns for LLM infrastructure:
+
+- **Multi-provider routing** - Single API, multiple backends (Bedrock, OpenAI, Anthropic, Ollama)
+- **Compliance-aware** - Route sensitive data to private inference, general queries to managed services
+- **Cost optimization** - Provider selection based on token costs and rate limits
+- **Cloud-native deployment** - EKS, ArgoCD, Terraform
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Ingress                               │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│              API Gateway (FastAPI)                           │
-│         - Auth, routing, rate limiting                       │
-└──────┬──────────────────┬────────────────────┬──────────────┘
-       │                  │                    │
-┌──────▼──────┐   ┌───────▼───────┐   ┌───────▼───────┐
-│ LLM Service │   │ Embedding Svc │   │  Redis Cache  │
-│  (Ollama)   │   │  (FastAPI)    │   │               │
-└─────────────┘   └───────┬───────┘   └───────────────┘
-                          │
-                  ┌───────▼───────┐
-                  │ Vector Store  │
-                  │  (Qdrant)     │
-                  └───────────────┘
+                            ┌─────────────────────────────────────┐
+                            │         API Gateway (EKS)            │
+                            │  • Authentication & rate limiting    │
+                            │  • Request routing logic             │
+                            │  • Response caching (Redis)          │
+                            │  • Cost tracking & audit logging     │
+                            └────┬──────────┬──────────┬──────────┘
+                                 │          │          │
+        ┌────────────────────────┼──────────┼──────────┼────────────────────────┐
+        │                        │          │          │                        │
+        ▼                        ▼          ▼          ▼                        ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│  AWS Bedrock  │    │    OpenAI     │    │   Anthropic   │    │    Ollama     │
+│   (Claude)    │    │    (GPT)      │    │   (Claude)    │    │   (Local)     │
+├───────────────┤    ├───────────────┤    ├───────────────┤    ├───────────────┤
+│ • Managed     │    │ • Highest     │    │ • Direct API  │    │ • Private VPC │
+│ • AWS-native  │    │   capability  │    │ • Alternative │    │ • PHI/HIPAA   │
+│ • Pay-per-use │    │ • Enterprise  │    │   routing     │    │ • Fine-tuned  │
+└───────────────┘    └───────────────┘    └───────────────┘    └───────────────┘
 ```
 
-### LLM Provider Support
+### When to Use Each Provider
 
-The gateway supports multiple inference backends:
+| Provider | Use Case | Why |
+|----------|----------|-----|
+| **AWS Bedrock** | Production workloads | Managed, scalable, AWS-native integration |
+| **OpenAI** | Highest capability needs | GPT-4 for complex reasoning tasks |
+| **Anthropic** | Direct API fallback | Alternative routing, cost comparison |
+| **Ollama** | Sensitive data / compliance | PHI, HIPAA, air-gapped, fine-tuned models |
 
-| Provider | Type | Authentication | Use Case |
-|----------|------|----------------|----------|
-| Ollama | Local (in-cluster) | None required | Free inference, no external dependencies |
-| OpenAI | External API | API Key via K8s Secret | GPT models, production workloads |
-| Anthropic | External API | API Key via K8s Secret | Claude models, production workloads |
+## Technology Stack
 
-Provider credentials are managed via Kubernetes Secrets, following security best practices for sensitive configuration.
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **Orchestration** | Kubernetes (EKS) | Container orchestration |
+| **GitOps** | ArgoCD | Declarative deployments |
+| **Infrastructure** | Terraform | IaC for reproducible environments |
+| **API Gateway** | FastAPI | Request routing, auth, caching |
+| **Cache** | Redis | Response caching, rate limiting |
+| **Local Inference** | Ollama | Private LLM for sensitive data |
+| **Vector Store** | Qdrant | Embedding storage (RAG support) |
+| **CI/CD** | GitHub Actions | Build and push images |
 
-## CKAD Concepts Covered
+## Project Phases
 
-| Phase | Focus Area | K8s Concepts | Status |
-|-------|------------|--------------|--------|
-| 1 | Foundation | Pods, Deployments, Services, Labels, Selectors | ✅ Complete |
-| 2 | Configuration | ConfigMaps, Secrets, Environment Variables | ✅ Complete |
-| 3 | Persistence | PersistentVolumeClaims, StatefulSets, StorageClasses | ✅ Complete |
-| 4 | Observability | Probes (Liveness/Readiness/Startup), Resource Limits, Logging | ⬜ Planned |
-| 5 | Deployment Strategies | Rolling Updates, Rollbacks, Blue-Green, Canary | ⬜ Planned |
-| 6 | Scaling | HorizontalPodAutoscaler, Manual Scaling, Load Testing | ⬜ Planned |
-| 7 | Networking & Security | Ingress, NetworkPolicies, SecurityContext, RBAC | ⬜ Planned |
+| Phase | Focus | Status | Key Learnings |
+|-------|-------|--------|---------------|
+| 1 | K8s Foundation | ✅ Complete | Pods, Deployments, Services, Labels |
+| 2 | Configuration | ✅ Complete | ConfigMaps, Secrets, Kustomize |
+| 3 | Persistence | ✅ Complete | PVCs, StatefulSets |
+| 4 | Observability | ✅ Complete | Probes, Resource Limits |
+| 5 | Deployment Strategies | 🔄 In Progress | Rolling Updates, Rollbacks, Canary |
+| 6 | Scaling | ⬜ Planned | HPA, Load Testing |
+| 7 | Ingress & Security | ⬜ Planned | Ingress, NetworkPolicies, RBAC |
+| 8 | Provider Routing | ⬜ Planned | Bedrock, OpenAI, Anthropic integration |
+| 9 | EKS Deployment | ⬜ Planned | Production cloud deployment |
+| 10 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
+| 11 | Terraform IaC | ⬜ Planned | Infrastructure as Code |
 
-## Tech Stack
+## Local Development
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| Container Orchestration | Kubernetes (minikube) | Local K8s cluster |
-| API Gateway | FastAPI + Uvicorn | Request routing, health checks |
-| Cache | Redis | Session/response caching |
-| LLM Inference | Ollama | Local model serving |
-| External LLMs | OpenAI, Anthropic | Cloud-based inference |
-| Vector Store | Qdrant | Embedding storage (planned) |
-| Container Runtime | Docker | Image building |
+### Prerequisites
+
+- Docker
+- minikube
+- kubectl
+- AWS CLI (for Bedrock integration)
+
+### Quick Start
+
+```bash
+# Start minikube
+minikube start --driver=docker --cpus=4 --memory=8192
+
+# Create namespace
+kubectl create namespace ai-gateway
+kubectl config set-context --current --namespace=ai-gateway
+
+# Point Docker to minikube
+eval $(minikube docker-env)
+
+# Build API Gateway
+cd api-gateway
+docker build -t ai-gateway:v1 .
+
+# Deploy all services
+cd ../manifests/base
+kubectl apply -k .
+
+# Configure secrets (optional - for external providers)
+kubectl create secret generic llm-api-keys \
+  --from-literal=OPENAI_API_KEY=your-key \
+  --from-literal=ANTHROPIC_API_KEY=your-key
+
+# Test
+kubectl port-forward service/api-gateway 8080:80
+curl http://localhost:8080/health
+curl http://localhost:8080/providers
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check for K8s probes |
+| `/config` | GET | Display current configuration |
+| `/providers` | GET | List configured LLM providers |
+| `/settings` | GET | Show routing settings |
+| `/chat` | POST | Send inference request |
+| `/redis-test` | GET | Verify cache connectivity |
+
+### Example Chat Request
+
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain Kubernetes in one sentence",
+    "model": "llama3.2:1b"
+  }'
+```
 
 ## Project Structure
 
@@ -87,124 +156,82 @@ kubernetes-ai-gateway/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── manifests/
-│   ├── redis-deployment.yaml
-│   ├── redis-service.yaml
-│   ├── api-gateway-deployment.yaml
-│   ├── api-gateway-service.yaml
-│   └── api-gateway-config.yaml
+│   ├── base/
+│   │   ├── kustomization.yaml
+│   │   ├── api-gateway-deployment.yaml
+│   │   ├── api-gateway-service.yaml
+│   │   ├── api-gateway-config.yaml
+│   │   ├── gateway-settings.yaml
+│   │   ├── redis-deployment.yaml
+│   │   ├── redis-service.yaml
+│   │   ├── ollama-deployment.yaml
+│   │   ├── ollama-service.yaml
+│   │   ├── ollama-pvc.yaml
+│   │   ├── qdrant-statefulset.yaml
+│   │   └── qdrant-service.yaml
+│   └── overlays/
+│       ├── dev/
+│       └── prod/
+├── terraform/           # Coming Phase 11
+├── argocd/              # Coming Phase 10
 ├── CKAD-CHEATSHEET.md
-├── .gitignore
 └── README.md
 ```
 
-## Quick Start
+## Key Design Decisions
 
-### Prerequisites
+### Why a Gateway Instead of Direct Provider Calls?
 
-- Docker
-- minikube
-- kubectl
+| Concern | Gateway Solution |
+|---------|------------------|
+| **Vendor lock-in** | Swap providers without code changes |
+| **Cost control** | Centralized tracking and routing |
+| **Compliance** | Route PHI to private inference |
+| **Reliability** | Fallback providers, caching |
+| **Observability** | Unified logging and metrics |
 
-### Setup
+### Why Self-Hosted Ollama?
 
-1. **Start minikube cluster**
-   ```bash
-   minikube start --driver=docker --cpus=4 --memory=8192
-   ```
+Not a replacement for Bedrock - a complement for specific cases:
 
-2. **Create namespace**
-   ```bash
-   kubectl create namespace ai-gateway
-   kubectl config set-context --current --namespace=ai-gateway
-   ```
+- **Healthcare/PHI**: Data never leaves your VPC
+- **Fine-tuned models**: Custom models not available in managed services
+- **Air-gapped environments**: No external API access
+- **Development**: Fast iteration without API costs
 
-3. **Point Docker to minikube**
-   ```bash
-   eval $(minikube docker-env)
-   ```
+## CKAD Exam Alignment
 
-4. **Build the API Gateway image**
-   ```bash
-   cd api-gateway
-   docker build -t ai-gateway:v1 .
-   ```
+This project covers these CKAD domains:
 
-5. **Deploy all services**
-   ```bash
-   cd ../manifests
-   kubectl apply -f redis-deployment.yaml
-   kubectl apply -f redis-service.yaml
-   kubectl apply -f api-gateway-config.yaml
-   kubectl apply -f api-gateway-deployment.yaml
-   kubectl apply -f api-gateway-service.yaml
-   ```
+| Domain | Concepts Practiced |
+|--------|-------------------|
+| Application Design & Build | Multi-container pods, init containers |
+| Application Deployment | Rolling updates, rollbacks, scaling |
+| Application Observability | Probes, logging, resource monitoring |
+| Application Environment | ConfigMaps, Secrets, env vars |
+| Services & Networking | Services, Ingress, NetworkPolicies |
 
-6. **Configure LLM Provider Secrets (optional)**
-   ```bash
-   kubectl create secret generic llm-api-keys \
-     --from-literal=OPENAI_API_KEY=your-openai-key \
-     --from-literal=ANTHROPIC_API_KEY=your-anthropic-key
-   ```
-
-7. **Verify deployment**
-   ```bash
-   kubectl get pods
-   kubectl get services
-   ```
-
-8. **Test the API**
-   ```bash
-   kubectl port-forward service/api-gateway 8080:80
-   # In another terminal:
-   curl http://localhost:8080/health
-   curl http://localhost:8080/redis-test
-   curl http://localhost:8080/config
-   curl http://localhost:8080/providers
-   ```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check for K8s probes |
-| `/redis-test` | GET | Verify Redis connectivity |
-| `/config` | GET | Display current configuration |
-| `/providers` | GET | List configured LLM providers |
-
-## Key Learnings
-
-### Service Discovery
-Kubernetes DNS automatically resolves service names to pod IPs. The API Gateway connects to Redis simply using the hostname `redis`, which K8s resolves to the Redis service's ClusterIP.
-
-### Environment Variable Injection
-Configuration is injected via the Deployment manifest rather than baked into images, enabling the same image to run in different environments.
-
-### ConfigMaps vs Secrets
-- **ConfigMaps**: Non-sensitive configuration (app settings, feature flags)
-- **Secrets**: Sensitive data (API keys, credentials) - base64 encoded and can be encrypted at rest
-
-### Labels and Selectors
-Deployments manage pods through label matching. Services route traffic using the same mechanism, creating a decoupled architecture.
-
-### Rolling Updates
-Changing the image tag in a Deployment triggers a rolling update. Kubernetes gradually replaces old pods with new ones, maintaining availability throughout.
+See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this project.
 
 ## Roadmap
 
-- [x] Add ConfigMaps for externalized configuration
-- [x] Implement Secrets for API key management
-- [ ] Deploy Ollama with PersistentVolumeClaim for model storage
-- [ ] Add health probes (liveness, readiness, startup)
-- [ ] Configure resource requests and limits
-- [ ] Implement HorizontalPodAutoscaler
-- [ ] Add Ingress for external access
-- [ ] Implement NetworkPolicies for pod isolation
-- [ ] Build LLM routing logic (Ollama/OpenAI/Anthropic)
-- [ ] Add response caching with Redis
+- [x] Core K8s deployment (minikube)
+- [x] ConfigMaps and Secrets management
+- [x] Persistent storage (PVCs, StatefulSets)
+- [x] Health probes and resource limits
+- [ ] Deployment strategies (rolling, canary)
+- [ ] Horizontal Pod Autoscaler
+- [ ] Ingress with TLS
+- [ ] NetworkPolicies
+- [ ] AWS Bedrock integration
+- [ ] OpenAI/Anthropic routing
+- [ ] EKS deployment
+- [ ] ArgoCD GitOps
+- [ ] Terraform automation
 
 ## Author
 
-Matt Sikes - Principal Architect specializing in AI infrastructure and cloud solutions
+**Matt Sikes** - Principal Architect specializing in AI infrastructure and cloud solutions
 
 ## License
 

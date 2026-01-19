@@ -17,7 +17,7 @@ redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=Tr
 
 @app.get("/health")
 def health_check():
-   return {"status": "healthy"}
+   return {"status": "healthy", "version": "2.0"}
 
 @app.get("/redis-test")
 def redis_test():

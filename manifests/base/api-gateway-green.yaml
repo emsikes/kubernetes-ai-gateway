@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway-green
+  namespace: ai-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+      version: green
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: green
+    spec:
+      containers:
+        - name: api-gateway
+          image: ai-gateway:v11
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_REDIS_HOST
+              value: "redis"
+            - name: OLLAMA_HOST
+              value: "ollama"

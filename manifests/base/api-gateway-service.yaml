@@ -6,6 +6,7 @@ metadata:
 spec:
   selector:
     app: api-gateway
+    version: blue
   ports:
     - port: 80
       targetPort: 8000
