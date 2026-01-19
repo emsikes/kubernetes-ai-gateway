@@ -17,9 +17,27 @@ spec:
       containers:
         - name: qdrant
           image: qdrant/qdrant:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 6333
             - containerPort: 6334
+          livenessProbe:
+            httpGet:
+              path: /collections
+              port: 6333
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /collections
+              port: 6333
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: 500m
           volumeMounts:
             - name: qdrant-storage
               mountPath: /qdrant/storage
