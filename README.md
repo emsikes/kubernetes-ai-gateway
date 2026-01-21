@@ -74,13 +74,13 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 |-------|-------|--------|---------------|
 | 1 | K8s Foundation | ✅ Complete | Pods, Deployments, Services, Labels |
 | 2 | Configuration | ✅ Complete | ConfigMaps, Secrets, Kustomize |
-| 3 | Persistence | ✅ Complete | PVCs, StatefulSets |
-| 4 | Observability | ✅ Complete | Probes, Resource Limits |
-| 5 | Deployment Strategies | 🔄 In Progress | Rolling Updates, Rollbacks, Canary |
-| 6 | Scaling | ⬜ Planned | HPA, Load Testing |
-| 7 | Ingress & Security | ⬜ Planned | Ingress, NetworkPolicies, RBAC |
+| 3 | Persistence | ✅ Complete | PVCs, StatefulSets, Headless Services |
+| 4 | Observability | ✅ Complete | Probes (startup/liveness/readiness), Resource Limits |
+| 5 | Deployment Strategies | ✅ Complete | Rolling Updates, Rollbacks, Blue-Green |
+| 6 | Scaling | ✅ Complete | HPA, Metrics Server, Load Testing |
+| 7 | Ingress & Security | ✅ Complete | Ingress, NetworkPolicies, RBAC |
 | 8 | Provider Routing | ⬜ Planned | Bedrock, OpenAI, Anthropic integration |
-| 9 | EKS Deployment | ⬜ Planned | Production cloud deployment |
+| 9 | EKS Deployment | ⬜ Planned | Production cloud deployment with Route53 |
 | 10 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
 | 11 | Terraform IaC | ⬜ Planned | Infrastructure as Code |
 
@@ -125,6 +125,20 @@ curl http://localhost:8080/health
 curl http://localhost:8080/providers
 ```
 
+### Enable Addons (for full functionality)
+
+```bash
+# Metrics for HPA
+minikube addons enable metrics-server
+
+# Ingress controller
+minikube addons enable ingress
+
+# Verify
+kubectl top pods
+kubectl get pods -n ingress-nginx
+```
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
@@ -161,9 +175,13 @@ kubernetes-ai-gateway/
 │   │   ├── api-gateway-deployment.yaml
 │   │   ├── api-gateway-service.yaml
 │   │   ├── api-gateway-config.yaml
+│   │   ├── api-gateway-hpa.yaml
+│   │   ├── api-gateway-ingress.yaml
+│   │   ├── api-gateway-rbac.yaml
 │   │   ├── gateway-settings.yaml
 │   │   ├── redis-deployment.yaml
 │   │   ├── redis-service.yaml
+│   │   ├── redis-network-policy.yaml
 │   │   ├── ollama-deployment.yaml
 │   │   ├── ollama-service.yaml
 │   │   ├── ollama-pvc.yaml
@@ -199,6 +217,28 @@ Not a replacement for Bedrock - a complement for specific cases:
 - **Air-gapped environments**: No external API access
 - **Development**: Fast iteration without API costs
 
+## Security Features
+
+### RBAC (Role-Based Access Control)
+
+API Gateway runs with a dedicated ServiceAccount with least-privilege permissions:
+
+```yaml
+# api-gateway-sa can only:
+- get/list ConfigMaps and Secrets (in ai-gateway namespace)
+- get/list/watch Pods (for health monitoring)
+```
+
+### NetworkPolicies
+
+Redis access restricted to api-gateway pods only:
+
+```yaml
+# Only pods with label app=api-gateway can reach Redis on port 6379
+```
+
+**Note:** NetworkPolicy enforcement requires Calico CNI. Will be fully tested on EKS deployment.
+
 ## CKAD Exam Alignment
 
 This project covers these CKAD domains:
@@ -206,7 +246,7 @@ This project covers these CKAD domains:
 | Domain | Concepts Practiced |
 |--------|-------------------|
 | Application Design & Build | Multi-container pods, init containers |
-| Application Deployment | Rolling updates, rollbacks, scaling |
+| Application Deployment | Rolling updates, rollbacks, HPA scaling |
 | Application Observability | Probes, logging, resource monitoring |
 | Application Environment | ConfigMaps, Secrets, env vars |
 | Services & Networking | Services, Ingress, NetworkPolicies |
@@ -219,13 +259,14 @@ See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this
 - [x] ConfigMaps and Secrets management
 - [x] Persistent storage (PVCs, StatefulSets)
 - [x] Health probes and resource limits
-- [ ] Deployment strategies (rolling, canary)
-- [ ] Horizontal Pod Autoscaler
-- [ ] Ingress with TLS
-- [ ] NetworkPolicies
+- [x] Deployment strategies (rolling, blue-green)
+- [x] Horizontal Pod Autoscaler
+- [x] Ingress with nginx controller
+- [x] NetworkPolicies (Redis isolation)
+- [x] RBAC (ServiceAccount, Role, RoleBinding)
 - [ ] AWS Bedrock integration
 - [ ] OpenAI/Anthropic routing
-- [ ] EKS deployment
+- [ ] EKS deployment with Route53 DNS
 - [ ] ArgoCD GitOps
 - [ ] Terraform automation
 

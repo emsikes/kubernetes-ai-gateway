@@ -10,12 +10,19 @@ Quick reference for Kubernetes commands and concepts learned while building the 
 # Start minikube with resources
 minikube start --driver=docker --cpus=4 --memory=8192
 
+# Start minikube with Calico CNI (required for NetworkPolicy enforcement)
+minikube start --driver=docker --cpus=4 --memory=8192 --cni=calico
+
 # Point Docker CLI to minikube's daemon
 eval $(minikube docker-env)
 
 # Check cluster status
 minikube status
 kubectl cluster-info
+
+# Enable addons
+minikube addons enable metrics-server
+minikube addons enable ingress
 ```
 
 ---
@@ -102,6 +109,9 @@ kubectl scale deployment/api-gateway --replicas=3
 
 # Patch deployment (e.g., fix imagePullPolicy)
 kubectl patch deployment ollama -p '{"spec":{"template":{"spec":{"containers":[{"name":"ollama","imagePullPolicy":"IfNotPresent"}]}}}}'
+
+# Patch to add ServiceAccount
+kubectl patch deployment api-gateway -p '{"spec":{"template":{"spec":{"serviceAccountName":"api-gateway-sa"}}}}'
 ```
 
 ---
@@ -121,6 +131,9 @@ kubectl port-forward service/api-gateway 8080:80
 
 # Expose deployment as service (imperative)
 kubectl expose deployment api-gateway --port=80 --target-port=8000
+
+# Get minikube service URL (for Docker driver)
+minikube service api-gateway -n ai-gateway --url
 ```
 
 ---
@@ -551,6 +564,282 @@ behavior:
 
 ---
 
+## Ingress
+
+### Enable Ingress Controller (minikube)
+
+```bash
+minikube addons enable ingress
+
+# Verify controller is running
+kubectl get pods -n ingress-nginx
+```
+
+### Ingress Resource
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: ai-gateway
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ai-gateway.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 80
+```
+
+### Ingress Commands
+
+```bash
+# List ingresses
+kubectl get ingress
+
+# Describe for details and events
+kubectl describe ingress api-gateway-ingress
+
+# Check ingress controller logs
+kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=20
+```
+
+### Local Testing (minikube + Docker driver)
+
+```bash
+# Add hostname to /etc/hosts
+echo "$(minikube ip) ai-gateway.local" | sudo tee -a /etc/hosts
+
+# If tunnel needed (minikube + Docker + WSL2)
+minikube tunnel
+
+# Alternative: use minikube service directly
+minikube service api-gateway -n ai-gateway --url
+```
+
+### Ingress Architecture
+
+```
+Internet → Ingress Controller (nginx pod) → Ingress Rules → Service → Pods
+```
+
+**Exam Tip:** `ingressClassName: nginx` tells Kubernetes which controller handles this Ingress. Multiple controllers can coexist.
+
+### Path Types
+
+| pathType | Behavior |
+|----------|----------|
+| `Prefix` | Matches URL path prefix (e.g., `/api` matches `/api/v1`) |
+| `Exact` | Matches exact path only |
+| `ImplementationSpecific` | Controller decides |
+
+---
+
+## NetworkPolicies
+
+**Note:** Requires CNI that supports NetworkPolicies (Calico, Cilium). Default minikube CNI does not enforce them.
+
+```bash
+# Start minikube with Calico for NetworkPolicy support
+minikube start --cni=calico
+```
+
+### Default Deny All Ingress
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: ai-gateway
+spec:
+  podSelector: {}      # Applies to ALL pods
+  policyTypes:
+  - Ingress
+```
+
+### Allow Specific Traffic
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-access
+  namespace: ai-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app: redis           # Policy applies to redis pods
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway  # Only api-gateway can connect
+    ports:
+    - protocol: TCP
+      port: 6379
+```
+
+### NetworkPolicy Commands
+
+```bash
+# List policies
+kubectl get networkpolicy
+kubectl get netpol
+
+# Describe policy
+kubectl describe networkpolicy redis-access
+
+# Test connectivity (should fail if policy blocks it)
+kubectl run test-pod --rm -it --restart=Never --image=redis:7-alpine -- redis-cli -h redis ping
+```
+
+### NetworkPolicy Mental Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  podSelector: WHO does this policy apply to?                │
+│                                                             │
+│  policyTypes: WHAT traffic direction? (Ingress/Egress)      │
+│                                                             │
+│  ingress/egress:                                            │
+│    - from/to: WHO can connect?                              │
+│      - podSelector: pods with these labels                  │
+│      - namespaceSelector: pods in these namespaces          │
+│      - ipBlock: external IPs                                │
+│    - ports: WHICH ports?                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Exam Tip:** Once ANY NetworkPolicy selects a pod, that pod becomes "default deny" for that traffic type. Only explicitly allowed traffic gets through.
+
+---
+
+## RBAC (Role-Based Access Control)
+
+### Three Components
+
+| Resource | Scope | Purpose |
+|----------|-------|---------|
+| **ServiceAccount** | Namespace | Identity for pods |
+| **Role** | Namespace | Set of permissions |
+| **RoleBinding** | Namespace | Connects ServiceAccount to Role |
+
+For cluster-wide: use **ClusterRole** and **ClusterRoleBinding**
+
+### ServiceAccount
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway-sa
+  namespace: ai-gateway
+```
+
+### Role (Permissions)
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-gateway-role
+  namespace: ai-gateway
+rules:
+- apiGroups: [""]              # "" = core API
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+```
+
+### RoleBinding (Glue)
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-gateway-binding
+  namespace: ai-gateway
+subjects:
+- kind: ServiceAccount
+  name: api-gateway-sa
+  namespace: ai-gateway
+roleRef:
+  kind: Role
+  name: api-gateway-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Wire ServiceAccount to Pod
+
+```yaml
+spec:
+  serviceAccountName: api-gateway-sa
+  containers:
+    - name: api-gateway
+      ...
+```
+
+### RBAC Commands
+
+```bash
+# List ServiceAccounts
+kubectl get serviceaccounts
+kubectl get sa
+
+# List Roles
+kubectl get roles
+
+# List RoleBindings
+kubectl get rolebindings
+
+# Check what a ServiceAccount can do
+kubectl auth can-i get pods --as=system:serviceaccount:ai-gateway:api-gateway-sa
+
+# Describe for details
+kubectl describe role api-gateway-role
+kubectl describe rolebinding api-gateway-binding
+```
+
+### Common Verbs
+
+| Verb | Action |
+|------|--------|
+| `get` | Read single resource |
+| `list` | Read collection |
+| `watch` | Stream changes |
+| `create` | Create new |
+| `update` | Modify existing |
+| `patch` | Partial modify |
+| `delete` | Remove |
+
+### RBAC Mental Model
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  ServiceAccount  │     │   RoleBinding    │     │      Role        │
+│                  │◄───►│                  │◄───►│                  │
+│  WHO am I?       │     │  WHO gets WHAT?  │     │  WHAT can I do?  │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+```
+
+**Exam Tip:** Default ServiceAccount has minimal permissions. Always create dedicated ServiceAccounts for apps that need API access.
+
+---
+
 ## Image Pull Policy
 
 | Image Tag | Default Policy | Behavior |
@@ -675,6 +964,15 @@ kubectl set image deployment/api-gateway api-gateway=ai-gateway:v7
 
 # Create HPA
 kubectl autoscale deployment api-gateway --min=1 --max=5 --cpu-percent=50
+
+# Create ServiceAccount
+kubectl create serviceaccount api-gateway-sa
+
+# Create Role (then edit YAML for specific rules)
+kubectl create role api-gateway-role --verb=get,list --resource=pods --dry-run=client -o yaml
+
+# Create RoleBinding
+kubectl create rolebinding api-gateway-binding --role=api-gateway-role --serviceaccount=ai-gateway:api-gateway-sa
 ```
 
 ---
@@ -696,6 +994,10 @@ kubectl autoscale deployment api-gateway --min=1 --max=5 --cpu-percent=50
 | Force delete | `kubectl delete pod NAME --force --grace-period=0` |
 | Pod metrics | `kubectl top pods` |
 | Watch HPA | `kubectl get hpa -w` |
+| List ingress | `kubectl get ingress` |
+| List netpol | `kubectl get networkpolicy` |
+| List SA | `kubectl get serviceaccounts` |
+| Check RBAC | `kubectl auth can-i VERB RESOURCE --as=system:serviceaccount:NS:SA` |
 
 ---
 
@@ -722,10 +1024,10 @@ spec:
 
 ```yaml
 spec:                    # Pod spec
+  serviceAccountName:    # WHO the pod runs as
   containers:            # WHAT runs (list of containers)
   volumes:               # WHAT storage (list of volumes)
   initContainers:        # WHAT runs first
-  serviceAccountName:    # WHO the pod runs as
   securityContext:       # HOW securely it runs
 ```
 
@@ -739,7 +1041,7 @@ spec:                    # Pod spec
 - [x] Phase 4: Probes, Resource Limits
 - [x] Phase 5: Rolling Updates, Rollbacks
 - [x] Phase 6: HPA, Scaling
-- [ ] Phase 7: Ingress, NetworkPolicies, RBAC
+- [x] Phase 7: Ingress, NetworkPolicies, RBAC
 - [ ] Phase 8: Provider Routing
 - [ ] Phase 9: EKS Deployment
 - [ ] Phase 10: ArgoCD GitOps
