@@ -19,6 +19,7 @@ spec:
         app: api-gateway
         version: blue
     spec:
+      serviceAccountName: api-gateway-sa
       containers:
         - name: api-gateway
           image: ai-gateway:v9
