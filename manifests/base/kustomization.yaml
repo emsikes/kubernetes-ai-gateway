@@ -13,3 +13,4 @@ resources:
   - ollama-service.yaml
   - qdrant-statefulset.yaml
   - qdrant-service.yaml
+  - api-gateway-hpa.yaml

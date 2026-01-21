@@ -417,6 +417,140 @@ kubectl rollout history deployment/api-gateway
 
 ---
 
+## Horizontal Pod Autoscaling (HPA)
+
+### Enable Metrics Server (minikube)
+
+```bash
+minikube addons enable metrics-server
+
+# Verify metrics collection (wait ~30s after enabling)
+kubectl top pods
+kubectl top nodes
+
+# Sort by resource usage
+kubectl top pods --sort-by=cpu
+kubectl top pods --sort-by=memory
+
+# Show container-level metrics
+kubectl top pods --containers
+```
+
+### Create HPA (Imperative - CKAD Fast)
+
+```bash
+# Basic CPU-based HPA
+kubectl autoscale deployment api-gateway --min=1 --max=5 --cpu-percent=50
+
+# Check status
+kubectl get hpa
+
+# Watch scaling in real-time
+kubectl get hpa -w
+
+# Describe for events/conditions
+kubectl describe hpa api-gateway-hpa
+```
+
+### Create HPA (Declarative - Full Control)
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: ai-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 15
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 15
+```
+
+### HPA Commands
+
+```bash
+# Quick patch threshold for testing
+kubectl patch hpa api-gateway-hpa --patch '{"spec":{"metrics":[{"type":"Resource","resource":{"name":"cpu","target":{"type":"Utilization","averageUtilization":10}}}]}}'
+
+# Delete HPA
+kubectl delete hpa api-gateway-hpa
+```
+
+### Understanding HPA Output
+
+```
+NAME              REFERENCE                TARGETS        MINPODS   MAXPODS   REPLICAS
+api-gateway-hpa   Deployment/api-gateway   cpu: 251%/50%  1         5         3
+```
+
+| Field | Meaning |
+|-------|---------|
+| **TARGETS** | Current usage vs target (251% current / 50% target) |
+| **REPLICAS** | Current pod count |
+| **251%** | Pod using 2.5x its CPU *request* (not node capacity) |
+
+**Exam Tip:** HPA scales based on resource *requests*, not limits. Pods must have requests defined.
+
+### Load Testing for HPA
+
+```bash
+# Install hey load testing tool
+sudo apt install hey
+
+# Sustained load for 30 seconds, 10 concurrent connections
+hey -z 30s -c 10 http://localhost:8080/health
+
+# POST with JSON payload
+hey -z 30s -c 10 -m POST -H "Content-Type: application/json" \
+  -d '{"prompt": "test", "model": "llama3.2:1b"}' \
+  http://localhost:8080/chat
+```
+
+### HPA Behavior Explained
+
+```yaml
+behavior:
+  scaleUp:
+    stabilizationWindowSeconds: 0    # Scale up immediately
+    policies:
+    - type: Pods
+      value: 2                       # Add up to 2 pods
+      periodSeconds: 15              # Every 15 seconds
+  scaleDown:
+    stabilizationWindowSeconds: 30   # Wait 30s before scaling down
+    policies:
+    - type: Pods
+      value: 1                       # Remove 1 pod at a time
+      periodSeconds: 15              # Every 15 seconds
+```
+
+**Why asymmetric?** Scale up fast to handle load spikes. Scale down slowly to prevent flapping if traffic is bursty.
+
+---
+
 ## Image Pull Policy
 
 | Image Tag | Default Policy | Behavior |
@@ -538,6 +672,9 @@ kubectl create secret generic app-secret --from-literal=PASSWORD=secret
 
 # Update image
 kubectl set image deployment/api-gateway api-gateway=ai-gateway:v7
+
+# Create HPA
+kubectl autoscale deployment api-gateway --min=1 --max=5 --cpu-percent=50
 ```
 
 ---
@@ -550,12 +687,15 @@ kubectl set image deployment/api-gateway api-gateway=ai-gateway:v7
 | Check rollout | `kubectl rollout status deployment/NAME` |
 | Rollback | `kubectl rollout undo deployment/NAME` |
 | Scale | `kubectl scale deployment/NAME --replicas=N` |
+| Autoscale | `kubectl autoscale deployment/NAME --min=1 --max=5 --cpu-percent=50` |
 | Port forward | `kubectl port-forward svc/NAME LOCAL:REMOTE` |
 | Get logs | `kubectl logs -l app=NAME` |
 | Exec into pod | `kubectl exec -it POD -- sh` |
 | Env vars | `kubectl exec deployment/NAME -- env` |
 | Generate YAML | `kubectl create ... --dry-run=client -o yaml` |
 | Force delete | `kubectl delete pod NAME --force --grace-period=0` |
+| Pod metrics | `kubectl top pods` |
+| Watch HPA | `kubectl get hpa -w` |
 
 ---
 
@@ -597,8 +737,8 @@ spec:                    # Pod spec
 - [x] Phase 2: ConfigMaps, Secrets, Kustomize
 - [x] Phase 3: PVCs, StatefulSets
 - [x] Phase 4: Probes, Resource Limits
-- [ ] Phase 5: Rolling Updates, Rollbacks (in progress)
-- [ ] Phase 6: HPA, Scaling
+- [x] Phase 5: Rolling Updates, Rollbacks
+- [x] Phase 6: HPA, Scaling
 - [ ] Phase 7: Ingress, NetworkPolicies, RBAC
 - [ ] Phase 8: Provider Routing
 - [ ] Phase 9: EKS Deployment
@@ -607,4 +747,4 @@ spec:                    # Pod spec
 
 ---
 
-*Updated as project progresses*
+*Updated: January 2026*
