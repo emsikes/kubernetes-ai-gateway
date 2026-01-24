@@ -1,12 +1,11 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import redis
 import json
-import httpx
 
+from models import ChatRequest, ChatResponse
+from providers import OllamaProvider, OpenAIProvider
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
-OLLAMA_URL = f"http://{OLLAMA_HOST}:11434"
 
 app = FastAPI(title="AI Gateway")
 
@@ -14,6 +13,43 @@ app = FastAPI(title="AI Gateway")
 redis_host = os.getenv("APP_REDIS_HOST", "localhost")
 redis_port = "6379"
 redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+
+def load_settings():
+   try:
+      with open("/app/config/settings.json", "r") as f:
+         return json.load(f)
+   except FileNotFoundError:
+      return {"provider_models": {}}
+
+settings = load_settings()
+
+# Initialize providers with Redis and model prefixes from config within the api-gateway container
+providers = {
+   "ollama": OllamaProvider(
+      redis_client=redis_client,
+      model_prefixes=settings.get("provider_models", {}).get("ollama", [])
+   ),
+   "openai": OpenAIProvider(
+      redis_client=redis_client,
+      model_prefixes=settings.get("provider_models", {}).get("openai", [])
+   )
+}
+
+def select_providers(request: ChatRequest):
+   """Select the best provider for the request"""
+
+   # If user explicitly request a provider
+   if hasattr(request, 'provider') and request.provider:
+      if request.provider in providers:
+         return providers[request.provider]
+      
+   # Find provider that supports this model
+   for name, provider in providers.items():
+      if provider.is_available() and provider.supports_model(request.model):
+         return provider
+      
+   # Fallback to Ollama (local, always available)
+   return providers.get("ollama")
 
 @app.get("/health")
 def health_check():
@@ -66,16 +102,20 @@ def get_settings():
    except FileNotFoundError:
       return {"error": "Settings file not found"}
    
-@app.post("/chat")
-async def chat(request: dict):
-   """Forward chat request to Ollama"""
-   async with httpx.AsyncClient(timeout=60.0) as client:
-      response = await client.post(
-         f"{OLLAMA_URL}/api/generate",
-         json={
-            "model": request.get("model", "llama3.2:1b"),
-            "prompt": request.get("prompt", ""),
-            "stream": False
-         }
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatRequest) -> ChatResponse:
+   """OpenAI compatible chat endpoint with intelligent routing"""
+
+   provider = select_providers(request)
+
+   if not provider:
+      raise HTTPException(status_code=503, detail="No provider available")
+   
+   if not provider.is_available():
+      raise HTTPException(
+         status_code=503,
+         detail=f"Provider {provider.name} is not configured"
       )
-      return response.json()
+   
+   response = await provider.chat(request)
+   return response
