@@ -18,8 +18,10 @@ A production-grade **Unified LLM Gateway** that routes requests to multiple AI p
 This project demonstrates enterprise patterns for LLM infrastructure:
 
 - **Multi-provider routing** - Single API, multiple backends (Bedrock, OpenAI, Anthropic, Ollama)
+- **OpenAI-compatible API** - Drop-in replacement for any OpenAI client
 - **Compliance-aware** - Route sensitive data to private inference, general queries to managed services
 - **Cost optimization** - Provider selection based on token costs and rate limits
+- **Content safety guardrails** - Config-driven moderation with PII protection
 - **Cloud-native deployment** - EKS, ArgoCD, Terraform
 
 ### Architecture
@@ -28,6 +30,7 @@ This project demonstrates enterprise patterns for LLM infrastructure:
                             ┌─────────────────────────────────────┐
                             │         API Gateway (EKS)            │
                             │  • Authentication & rate limiting    │
+                            │  • Content safety guardrails         │
                             │  • Request routing logic             │
                             │  • Response caching (Redis)          │
                             │  • Cost tracking & audit logging     │
@@ -51,7 +54,7 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 | Provider | Use Case | Why |
 |----------|----------|-----|
 | **AWS Bedrock** | Production workloads | Managed, scalable, AWS-native integration |
-| **OpenAI** | Highest capability needs | GPT-4 for complex reasoning tasks |
+| **OpenAI** | Highest capability needs | GPT-5.x for complex reasoning tasks |
 | **Anthropic** | Direct API fallback | Alternative routing, cost comparison |
 | **Ollama** | Sensitive data / compliance | PHI, HIPAA, air-gapped, fine-tuned models |
 
@@ -63,7 +66,7 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 | **GitOps** | ArgoCD | Declarative deployments |
 | **Infrastructure** | Terraform | IaC for reproducible environments |
 | **API Gateway** | FastAPI | Request routing, auth, caching |
-| **Cache** | Redis | Response caching, rate limiting |
+| **Cache** | Redis | Response caching, rate limiting, usage metrics |
 | **Local Inference** | Ollama | Private LLM for sensitive data |
 | **Vector Store** | Qdrant | Embedding storage (RAG support) |
 | **CI/CD** | GitHub Actions | Build and push images |
@@ -79,10 +82,13 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 | 5 | Deployment Strategies | ✅ Complete | Rolling Updates, Rollbacks, Blue-Green |
 | 6 | Scaling | ✅ Complete | HPA, Metrics Server, Load Testing |
 | 7 | Ingress & Security | ✅ Complete | Ingress, NetworkPolicies, RBAC |
-| 8 | Provider Routing | ⬜ Planned | Bedrock, OpenAI, Anthropic integration |
-| 9 | EKS Deployment | ⬜ Planned | Production cloud deployment with Route53 |
-| 10 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
-| 11 | Terraform IaC | ⬜ Planned | Infrastructure as Code |
+| 8 | Provider Routing | 🔄 In Progress | Modular provider architecture, config-driven routing |
+| 9 | Router Enhancements | ⬜ Planned | Private routing, cost-based selection, fallback logic |
+| 10 | Guardrails Phase 1 | ⬜ Planned | Content safety, prompt injection detection |
+| 11 | Guardrails Phase 2 | ⬜ Planned | PII detection & masking, jailbreak protection |
+| 12 | EKS Deployment | ⬜ Planned | Production cloud deployment with Route53 |
+| 13 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
+| 14 | Terraform IaC | ⬜ Planned | Infrastructure as Code |
 
 ## Local Development
 
@@ -147,18 +153,44 @@ kubectl get pods -n ingress-nginx
 | `/config` | GET | Display current configuration |
 | `/providers` | GET | List configured LLM providers |
 | `/settings` | GET | Show routing settings |
-| `/chat` | POST | Send inference request |
+| `/v1/chat/completions` | POST | OpenAI-compatible chat endpoint |
 | `/redis-test` | GET | Verify cache connectivity |
 
-### Example Chat Request
+### Example Chat Request (OpenAI-compatible)
 
 ```bash
-curl -X POST http://localhost:8080/chat \
+curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Explain Kubernetes in one sentence",
-    "model": "llama3.2:1b"
+    "model": "llama3.2:1b",
+    "messages": [
+      {"role": "user", "content": "Explain Kubernetes in one sentence"}
+    ]
   }'
+```
+
+**Response:**
+```json
+{
+  "id": "ollama-3c2f64f8",
+  "object": "chat.completion",
+  "created": 1737590400,
+  "model": "llama3.2:1b",
+  "provider": "ollama",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "Kubernetes is an open-source container orchestration platform..."
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 35,
+    "completion_tokens": 10,
+    "total_tokens": 45
+  }
+}
 ```
 
 ## Project Structure
@@ -166,7 +198,18 @@ curl -X POST http://localhost:8080/chat \
 ```
 kubernetes-ai-gateway/
 ├── api-gateway/
-│   ├── main.py
+│   ├── main.py              # FastAPI app, routes, provider initialization
+│   ├── models.py            # Pydantic models (ChatRequest, ChatResponse)
+│   ├── providers/
+│   │   ├── __init__.py      # Provider exports
+│   │   ├── base.py          # LLMProvider abstract base class
+│   │   ├── ollama.py        # Ollama provider implementation
+│   │   └── openai.py        # OpenAI provider implementation
+│   ├── guardrails/          # Content moderation (Phase 10-11)
+│   │   ├── __init__.py      # Guardrail exports
+│   │   ├── base.py          # GuardrailBase abstract class
+│   │   ├── content_safety.py # Phase 1: Content safety evaluation
+│   │   └── pii_guard.py     # Phase 2: PII detection & masking
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── manifests/
@@ -178,7 +221,8 @@ kubernetes-ai-gateway/
 │   │   ├── api-gateway-hpa.yaml
 │   │   ├── api-gateway-ingress.yaml
 │   │   ├── api-gateway-rbac.yaml
-│   │   ├── gateway-settings.yaml
+│   │   ├── gateway-settings.yaml    # Provider model routing config
+│   │   ├── guardrail-settings.yaml  # Content safety config (Phase 10)
 │   │   ├── redis-deployment.yaml
 │   │   ├── redis-service.yaml
 │   │   ├── redis-network-policy.yaml
@@ -190,10 +234,80 @@ kubernetes-ai-gateway/
 │   └── overlays/
 │       ├── dev/
 │       └── prod/
-├── terraform/           # Coming Phase 11
-├── argocd/              # Coming Phase 10
+├── terraform/           # Coming Phase 14
+├── argocd/              # Coming Phase 13
 ├── CKAD-CHEATSHEET.md
 └── README.md
+```
+
+## Provider Routing
+
+Model-to-provider mapping is configured via ConfigMap (`gateway-settings.yaml`):
+
+```json
+{
+  "provider_models": {
+    "openai": ["gpt-5", "gpt-4", "gpt-3.5", "o1", "o3"],
+    "anthropic": ["claude"],
+    "bedrock": ["amazon", "anthropic.claude", "meta.llama"],
+    "ollama": ["llama", "mistral", "codellama", "phi", "qwen"]
+  }
+}
+```
+
+The router automatically selects a provider based on the model name prefix. Update the ConfigMap to add new models without code changes.
+
+## Guardrails Architecture
+
+Config-driven content moderation that intercepts requests before they reach LLM providers. Categories and rules are managed via ConfigMap - no code rebuild required for updates.
+
+### Phase 1: Content Safety
+
+| Category | What It Detects |
+|----------|-----------------|
+| `SELF_HARM` | Suicide, self-injury, eating disorders |
+| `VIOLENCE` | Threats, harm to others, graphic violence |
+| `HATE_SPEECH` | Discrimination, slurs, targeted harassment |
+| `SEXUAL_CONTENT` | Explicit sexual content, pornography |
+| `ILLEGAL_ACTIVITY` | Fraud, scams, theft |
+| `CONTROLLED_SUBSTANCES` | Drugs, drug manufacturing |
+| `WEAPONS` | Weapon manufacturing, illegal weapons |
+| `CYBER_CRIME` | Hacking, malware, exploits, phishing |
+| `CHILD_SAFETY` | CSAM references, grooming, exploitation |
+| `TERRORISM` | Extremist content, radicalization |
+| `PROMPT_INJECTION` | "Ignore instructions", role hijacking |
+| `OFFENSIVE_LANGUAGE` | Profanity, explicit language |
+
+### Phase 2: Advanced Protection
+
+| Feature | Description |
+|---------|-------------|
+| PII Detection | SSN, email, phone, credit cards, names, addresses |
+| PII Masking | Redact or mask before sending to external LLMs |
+| Jailbreak Detection | DAN prompts, persona manipulation, encoding tricks |
+
+### Configuration
+
+Guardrails are configured via `guardrail-settings.yaml` ConfigMap:
+
+```yaml
+categories:
+  SELF_HARM:
+    enabled: true
+    severity: critical
+    action: block
+    keywords: ["suicide", "kill myself", "end my life"]
+  VIOLENCE:
+    enabled: true
+    severity: high
+    action: block
+```
+
+Update categories without code changes:
+
+```bash
+kubectl edit configmap guardrail-settings
+kubectl rollout restart deployment/api-gateway
 ```
 
 ## Key Design Decisions
@@ -217,6 +331,13 @@ Not a replacement for Bedrock - a complement for specific cases:
 - **Air-gapped environments**: No external API access
 - **Development**: Fast iteration without API costs
 
+### Why Config-Driven Guardrails?
+
+- **No rebuild required** - Update keywords and rules via ConfigMap
+- **Environment-specific** - Different rules for dev vs prod
+- **Audit-friendly** - Configuration changes tracked in Git
+- **Rapid response** - Block new threats without deployment
+
 ## Security Features
 
 ### RBAC (Role-Based Access Control)
@@ -238,6 +359,13 @@ Redis access restricted to api-gateway pods only:
 ```
 
 **Note:** NetworkPolicy enforcement requires Calico CNI. Will be fully tested on EKS deployment.
+
+### Content Safety (Phase 10-11)
+
+- Pre-LLM request scanning for harmful content
+- PII detection and masking before external API calls
+- Prompt injection and jailbreak detection
+- Configurable block/warn/log actions per category
 
 ## CKAD Exam Alignment
 
@@ -264,8 +392,16 @@ See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this
 - [x] Ingress with nginx controller
 - [x] NetworkPolicies (Redis isolation)
 - [x] RBAC (ServiceAccount, Role, RoleBinding)
-- [ ] AWS Bedrock integration
-- [ ] OpenAI/Anthropic routing
+- [x] Modular provider architecture
+- [x] Config-driven model routing
+- [x] Ollama provider with OpenAI-compatible API
+- [x] Redis usage metrics per provider
+- [ ] OpenAI provider (built, needs testing)
+- [ ] Anthropic provider
+- [ ] AWS Bedrock provider
+- [ ] Router enhancements (private flag, max_cost, fallback)
+- [ ] Guardrails Phase 1: Content safety guard
+- [ ] Guardrails Phase 2: PII detection & masking
 - [ ] EKS deployment with Route53 DNS
 - [ ] ArgoCD GitOps
 - [ ] Terraform automation

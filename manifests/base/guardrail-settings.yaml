@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardrail-settings
+  namespace: ai-gateway
+data:
+  content_safety.json: |
+    {
+      "enabled": true,
+      "default_action": "block",
+      "log_all_requests": false,
+      "categories": {
+        "SELF_HARM": {
+          "enabled": true,
+          "severity": "critical",
+          "action": "block",
+          "keywords": ["kill myself", "suicide", "end my life", "self harm", "hurt myself", "want to die"]
+        },
+        "VIOLENCE": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["kill", "murder", "attack", "hurt someone", "beat up", "shoot", "stab"]
+        },
+        "HATE_SPEECH": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": []
+        },
+        "SEXUAL_CONTENT": {
+          "enabled": true,
+          "severity": "medium",
+          "action": "block",
+          "keywords": []
+        },
+        "ILLEGAL_ACTIVITY": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["steal", "fraud", "scam", "counterfeit", "forge"]
+        },
+        "CONTROLLED_SUBSTANCES": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["buy drugs", "sell drugs", "make meth", "cocaine", "heroin", "fentanyl", "drug dealer"]
+        },
+        "WEAPONS": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["make a bomb", "build weapon", "gun illegally", "explosive device", "3d print gun"]
+        },
+        "CYBER_CRIME": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["hack into", "malware", "ransomware", "phishing", "exploit vulnerability", "ddos", "sql injection"]
+        },
+        "CHILD_SAFETY": {
+          "enabled": true,
+          "severity": "critical",
+          "action": "block",
+          "keywords": []
+        },
+        "TERRORISM": {
+          "enabled": true,
+          "severity": "critical",
+          "action": "block",
+          "keywords": ["terrorist attack", "bomb threat", "radicalize", "jihad", "manifesto"]
+        },
+        "PROMPT_INJECTION": {
+          "enabled": true,
+          "severity": "high",
+          "action": "block",
+          "keywords": ["ignore previous instructions", "ignore above", "disregard your instructions", "you are now", "act as if", "pretend you are", "jailbreak", "DAN mode"]
+        },
+        "OFFENSIVE_LANGUAGE": {
+          "enabled": true,
+          "severity": "low",
+          "action": "warn",
+          "keywords": []
+        }
+    }
+  

@@ -17,3 +17,4 @@ resources:
   - api-gateway-ingress.yaml
   - redis-networking-policy.yaml
   - api-gateway-rbac.yaml
+  - guardrail-settings.yaml
