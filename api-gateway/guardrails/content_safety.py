@@ -89,3 +89,37 @@ class ContentSafetyGuard(GuardrailBase):
                 texts.append(message.content)
 
         return " ".join(texts).lower()
+    
+    def _check_category(self, text: str, category_name: str, category_config: dict):
+        """
+        Check text against a single category's keywords
+
+        Args:
+            text: Lowercase text to check
+            category_name: Name of the category (e.g. "VIOLENCE")
+            category_config: Config dict with keywords, severity, action
+
+        Returns:
+            GuardrailResult - passed=True if clean, passed=False if matched
+        """ 
+        keywords = category_config.get("keywords", [])
+
+        # Skip categories with no keywords defined
+        if not keywords:
+            return GuardrailResult(passed=True)
+        
+        # Check each keyword
+        for keyword in keywords:
+            if keyword.lower() in text:
+                # Match found - build the result
+                return GuardrailResult(
+                    passed=False,
+                    category=ThreatCategory(category_name.lower()),
+                    severity=Severity(category_config.get("severity", "medium")),
+                    action=GuardrailAction(category_config.get("action", self.default_action)),
+                    message=f"Detected {category_name}: matched keyword '{keyword}'",
+                    confidence=1.0 # Keyword match = 100% confidence
+                )
+            
+        # No matches in this category
+        return GuardrailResult(passed=True)

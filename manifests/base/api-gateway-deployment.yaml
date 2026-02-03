@@ -22,7 +22,7 @@ spec:
       serviceAccountName: api-gateway-sa
       containers:
         - name: api-gateway
-          image: ai-gateway:v9
+          image: ai-gateway:v18
           imagePullPolicy: Never
           ports:
             - containerPort: 8000
@@ -56,10 +56,14 @@ spec:
             - name: OLLAMA_HOST
               value: "ollama"
           volumeMounts:
-            - name: settings-volume
+            - name: config-volume
               mountPath: /app/config
               readOnly: true
       volumes:
-        - name: settings-volume
-          configMap:
-            name: gateway-settings
+        - name: config-volume
+          projected:
+            sources:
+              - configMap:
+                  name: gateway-settings
+              - configMap:
+                  name: guardrail-settings

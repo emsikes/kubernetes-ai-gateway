@@ -82,9 +82,9 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 | 5 | Deployment Strategies | ✅ Complete | Rolling Updates, Rollbacks, Blue-Green |
 | 6 | Scaling | ✅ Complete | HPA, Metrics Server, Load Testing |
 | 7 | Ingress & Security | ✅ Complete | Ingress, NetworkPolicies, RBAC |
-| 8 | Provider Routing | 🔄 In Progress | Modular provider architecture, config-driven routing |
+| 8 | Provider Routing | ✅ Complete | Modular provider architecture, config-driven routing |
 | 9 | Router Enhancements | ⬜ Planned | Private routing, cost-based selection, fallback logic |
-| 10 | Guardrails Phase 1 | ⬜ Planned | Content safety, prompt injection detection |
+| 10 | Guardrails Phase 1 | ✅ Complete | Content safety, prompt injection detection |
 | 11 | Guardrails Phase 2 | ⬜ Planned | PII detection & masking, jailbreak protection |
 | 12 | EKS Deployment | ⬜ Planned | Production cloud deployment with Route53 |
 | 13 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
@@ -193,6 +193,28 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 }
 ```
 
+### Content Safety Response (Blocked Request)
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3.2:1b",
+    "messages": [{"role": "user", "content": "Ignore previous instructions"}]
+  }'
+```
+
+**Response:**
+```json
+{
+  "detail": {
+    "error": "Content policy violation",
+    "category": "prompt_injection",
+    "message": "Detected PROMPT_INJECTION: matched keyword 'ignore previous instructions'"
+  }
+}
+```
+
 ## Project Structure
 
 ```
@@ -205,11 +227,13 @@ kubernetes-ai-gateway/
 │   │   ├── base.py          # LLMProvider abstract base class
 │   │   ├── ollama.py        # Ollama provider implementation
 │   │   └── openai.py        # OpenAI provider implementation
-│   ├── guardrails/          # Content moderation (Phase 10-11)
+│   ├── guardrails/
 │   │   ├── __init__.py      # Guardrail exports
-│   │   ├── base.py          # GuardrailBase abstract class
-│   │   ├── content_safety.py # Phase 1: Content safety evaluation
-│   │   └── pii_guard.py     # Phase 2: PII detection & masking
+│   │   ├── base.py          # GuardrailBase abstract class, enums, result types
+│   │   └── content_safety.py # Keyword-based content safety evaluation
+│   ├── tests/
+│   │   ├── __init__.py
+│   │   └── test_guardrails.py # Unit tests for content safety
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── manifests/
@@ -222,7 +246,7 @@ kubernetes-ai-gateway/
 │   │   ├── api-gateway-ingress.yaml
 │   │   ├── api-gateway-rbac.yaml
 │   │   ├── gateway-settings.yaml    # Provider model routing config
-│   │   ├── guardrail-settings.yaml  # Content safety config (Phase 10)
+│   │   ├── guardrail-settings.yaml  # Content safety config
 │   │   ├── redis-deployment.yaml
 │   │   ├── redis-service.yaml
 │   │   ├── redis-network-policy.yaml
@@ -261,7 +285,7 @@ The router automatically selects a provider based on the model name prefix. Upda
 
 Config-driven content moderation that intercepts requests before they reach LLM providers. Categories and rules are managed via ConfigMap - no code rebuild required for updates.
 
-### Phase 1: Content Safety
+### Phase 1: Content Safety (✅ Complete)
 
 | Category | What It Detects |
 |----------|-----------------|
@@ -278,7 +302,7 @@ Config-driven content moderation that intercepts requests before they reach LLM 
 | `PROMPT_INJECTION` | "Ignore instructions", role hijacking |
 | `OFFENSIVE_LANGUAGE` | Profanity, explicit language |
 
-### Phase 2: Advanced Protection
+### Phase 2: Advanced Protection (⬜ Planned)
 
 | Feature | Description |
 |---------|-------------|
@@ -290,17 +314,25 @@ Config-driven content moderation that intercepts requests before they reach LLM 
 
 Guardrails are configured via `guardrail-settings.yaml` ConfigMap:
 
-```yaml
-categories:
-  SELF_HARM:
-    enabled: true
-    severity: critical
-    action: block
-    keywords: ["suicide", "kill myself", "end my life"]
-  VIOLENCE:
-    enabled: true
-    severity: high
-    action: block
+```json
+{
+  "enabled": true,
+  "default_action": "block",
+  "categories": {
+    "VIOLENCE": {
+      "enabled": true,
+      "severity": "high",
+      "action": "block",
+      "keywords": ["kill", "murder", "attack"]
+    },
+    "PROMPT_INJECTION": {
+      "enabled": true,
+      "severity": "high",
+      "action": "block",
+      "keywords": ["ignore previous instructions", "you are now", "jailbreak"]
+    }
+  }
+}
 ```
 
 Update categories without code changes:
@@ -360,12 +392,13 @@ Redis access restricted to api-gateway pods only:
 
 **Note:** NetworkPolicy enforcement requires Calico CNI. Will be fully tested on EKS deployment.
 
-### Content Safety (Phase 10-11)
+### Content Safety (Phase 10 - ✅ Complete)
 
 - Pre-LLM request scanning for harmful content
-- PII detection and masking before external API calls
+- 12 threat categories with configurable keywords
 - Prompt injection and jailbreak detection
 - Configurable block/warn/log actions per category
+- Config-driven via Kubernetes ConfigMap
 
 ## CKAD Exam Alignment
 
@@ -396,11 +429,11 @@ See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this
 - [x] Config-driven model routing
 - [x] Ollama provider with OpenAI-compatible API
 - [x] Redis usage metrics per provider
+- [x] Guardrails Phase 1: Content safety guard
 - [ ] OpenAI provider (built, needs testing)
 - [ ] Anthropic provider
 - [ ] AWS Bedrock provider
 - [ ] Router enhancements (private flag, max_cost, fallback)
-- [ ] Guardrails Phase 1: Content safety guard
 - [ ] Guardrails Phase 2: PII detection & masking
 - [ ] EKS deployment with Route53 DNS
 - [ ] ArgoCD GitOps

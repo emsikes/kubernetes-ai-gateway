@@ -5,6 +5,7 @@ import json
 
 from models import ChatRequest, ChatResponse
 from providers import OllamaProvider, OpenAIProvider
+from guardrails import ContentSafetyGuard, GuardrailAction
 
 
 app = FastAPI(title="AI Gateway")
@@ -20,8 +21,19 @@ def load_settings():
          return json.load(f)
    except FileNotFoundError:
       return {"provider_models": {}}
+   
+def load_guardrail_settings():
+   """Load content safety settings from ConfigMap"""
+   try:
+      with open("/app/config/content_safety.json", "r") as f:
+         return json.load(f)
+   except FileNotFoundError:
+      # Default config if file not found (dev mode)
+      return {"enabled": False, "categories": {}}
 
 settings = load_settings()
+guardrail_config = load_guardrail_settings()
+content_guard = ContentSafetyGuard(guardrail_config)
 
 # Initialize providers with Redis and model prefixes from config within the api-gateway container
 providers = {
@@ -105,6 +117,21 @@ def get_settings():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatRequest) -> ChatResponse:
    """OpenAI compatible chat endpoint with intelligent routing"""
+
+   # Run content safety check BEFORE hitting any provider
+   guard_result = content_guard.evaluate(request)
+
+   if not guard_result.passed:
+      if guard_result.action == GuardrailAction.BLOCK:
+         raise HTTPException(
+            status_code=400,
+            detail={
+               "error": "Content policy violation",
+               "category": guard_result.category.value,
+               "message": guard_result.message
+            }
+         )
+      # For WARN / LOG actions, continue but log here
 
    provider = select_providers(request)
 
