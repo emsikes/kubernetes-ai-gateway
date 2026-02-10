@@ -5,7 +5,7 @@ import json
 
 from models import ChatRequest, ChatResponse
 from providers import OllamaProvider, OpenAIProvider
-from guardrails import ContentSafetyGuard, GuardrailAction
+from guardrails import ContentSafetyGuard, GuardrailAction, PIIGuard
 
 
 app = FastAPI(title="AI Gateway")
@@ -30,10 +30,20 @@ def load_guardrail_settings():
    except FileNotFoundError:
       # Default config if file not found (dev mode)
       return {"enabled": False, "categories": {}}
+   
+def load_pii_settings():
+   """Load PII detection settings from ConfigMap"""
+   try:
+      with open("/app/config/pii_settings.json", "r") as f:
+         return json.load(f)
+   except FileNotFoundError:
+      return {"enabled": False, "pii_types": {}}
 
 settings = load_settings()
 guardrail_config = load_guardrail_settings()
 content_guard = ContentSafetyGuard(guardrail_config)
+pii_config = load_pii_settings()
+pii_guard = PIIGuard(pii_config)
 
 # Initialize providers with Redis and model prefixes from config within the api-gateway container
 providers = {
@@ -118,7 +128,7 @@ def get_settings():
 async def chat_completions(request: ChatRequest) -> ChatResponse:
    """OpenAI compatible chat endpoint with intelligent routing"""
 
-   # Run content safety check BEFORE hitting any provider
+   # Guard 1: Content safety check BEFORE sending to a provider
    guard_result = content_guard.evaluate(request)
 
    if not guard_result.passed:
@@ -132,6 +142,25 @@ async def chat_completions(request: ChatRequest) -> ChatResponse:
             }
          )
       # For WARN / LOG actions, continue but log here
+
+   # Guard 2: PII detection
+   pii_result = pii_guard.evaluate(request)
+   if not pii_result.passed:
+      if pii_result.action == GuardrailAction.BLOCK:
+         raise HTTPException(
+            status_code=400,
+            detail={
+               "error": "PII detected",
+               "message": pii_result.masked_text
+            }
+         )
+      
+   # Handle REDACT - awap in masked text before sending to provider
+   if pii_result.action == GuardrailAction.REDACT and pii_result.masked_text:
+      for message in reversed(request.messages):
+         if message.role == "user" and message.content:
+            message.content = pii_result.masked_text
+            break
 
    provider = select_providers(request)
 

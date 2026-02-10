@@ -51,6 +51,7 @@ class GuardrailResult:
     action: GuardrailAction = GuardrailAction.LOG   # What to do
     message: str = ""                           # Human readable explanation
     confidence: float = 0.0                     # 0.0-1.0 detection confidence 
+    masked_text: Optional[str] = None           # Holds redacted text
 
 
 class GuardrailBase(ABC):

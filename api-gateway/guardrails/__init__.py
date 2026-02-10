@@ -7,12 +7,14 @@ from .base import(
     GuardrailAction
 )
 from .content_safety import ContentSafetyGuard
+from .pii_guard import PIIGuard
 
 __all__ = [
-    "GuardRailBase",
+    "GuardrailBase",
     "GuardrailResult",
     "ThreatCategory",
     "Severity",
     "GuardrailAction",
-    "ContentSafetyGuard"
+    "ContentSafetyGuard",
+    "PIIGuard",
 ]
