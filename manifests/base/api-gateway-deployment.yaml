@@ -22,7 +22,7 @@ spec:
       serviceAccountName: api-gateway-sa
       containers:
         - name: api-gateway
-          image: ai-gateway:v18
+          image: ai-gateway:v19
           imagePullPolicy: Never
           ports:
             - containerPort: 8000

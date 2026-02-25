@@ -8,6 +8,7 @@ from .base import(
 )
 from .content_safety import ContentSafetyGuard
 from .pii_guard import PIIGuard
+from .jailbreak_guard import JailbreakGuard
 
 __all__ = [
     "GuardrailBase",
@@ -17,4 +18,5 @@ __all__ = [
     "GuardrailAction",
     "ContentSafetyGuard",
     "PIIGuard",
+    "JailbreakGuard"
 ]

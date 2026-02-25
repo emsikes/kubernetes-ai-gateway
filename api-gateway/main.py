@@ -5,7 +5,7 @@ import json
 
 from models import ChatRequest, ChatResponse
 from providers import OllamaProvider, OpenAIProvider
-from guardrails import ContentSafetyGuard, GuardrailAction, PIIGuard
+from guardrails import ContentSafetyGuard, GuardrailAction, PIIGuard, JailbreakGuard
 
 
 app = FastAPI(title="AI Gateway")
@@ -44,6 +44,19 @@ guardrail_config = load_guardrail_settings()
 content_guard = ContentSafetyGuard(guardrail_config)
 pii_config = load_pii_settings()
 pii_guard = PIIGuard(pii_config)
+
+
+# Load guardrail configs from ConfigMap mounted JSON files
+def load_jailbreak_settings():
+   try:
+      with open("/app/config/jailbreak_settings.json", "r") as f:
+         return json.load(f)
+   except FileNotFoundError:
+      return {"enabled": False}
+   
+jailbreak_config = load_jailbreak_settings()
+jailbreak_guard = JailbreakGuard(jailbreak_config)
+
 
 # Initialize providers with Redis and model prefixes from config within the api-gateway container
 providers = {
@@ -161,6 +174,18 @@ async def chat_completions(request: ChatRequest) -> ChatResponse:
          if message.role == "user" and message.content:
             message.content = pii_result.masked_text
             break
+
+   # Jailbreak detection
+   jailbreak_result = jailbreak_guard.evaluate(request)
+   if not jailbreak_result.passed:
+      if jailbreak_result.action == GuardrailAction.BLOCK:
+         raise HTTPException(
+            status_code=400,
+            detail={
+               "error": "Jailbreak attempt detected",
+               "message": jailbreak_result.message
+            }
+         )
 
    provider = select_providers(request)
 

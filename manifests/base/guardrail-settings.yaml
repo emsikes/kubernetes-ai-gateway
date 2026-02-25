@@ -84,3 +84,58 @@ data:
         }
       }
     }
+  pii_settings.json: |
+    {
+      "enabled": true,
+      "default_action": "block",
+      "mask_strategy": "full",
+      "pii_types": {
+        "SSN": {
+          "enabled": true,
+          "severity": "critical",
+          "action": "block",
+          "mask_strategy": "full"
+        },
+        "CREDIT_CARD": {
+          "enabled": true,
+          "severity": "critical",
+          "action": "block",
+          "mask_strategy": "partial"
+        },
+        "EMAIL": {
+          "enabled": true,
+          "severity": "high",
+          "action": "redact",
+          "mask_strategy": "partial"
+        },
+        "PHONE": {
+          "enabled": true,
+          "severity": "high",
+          "action": "redact",
+          "mask_strategy": "partial"
+        },
+        "IP_ADDRESS": {
+          "enabled": true,
+          "severity": "medium",
+          "action": "log",
+          "mask_strategy": "full"
+        },
+        "DOB": {
+          "enabled": true,
+          "severity": "high",
+          "action": "redact",
+          "mask_strategy": "full"
+        }
+      }
+    }
+  jailbreak_settings.json: |
+    {
+      "enabled": true,
+      "default_action": "block",
+      "confidence_threshold": 0.7,
+      "layers": {
+        "exact_phrases": true,
+        "fuzzy_patterns": true,
+        "structural": true
+      }
+    }
