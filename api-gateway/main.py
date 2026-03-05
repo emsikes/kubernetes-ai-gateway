@@ -70,21 +70,51 @@ providers = {
    )
 }
 
-def select_providers(request: ChatRequest):
-   """Select the best provider for the request"""
+def rank_providers(request: ChatRequest) -> list:
+   """
+   Rank available providers for the request, best match first.
+    
+    Returns a list of providers in priority order based on:
+        1. Private flag — Ollama only
+        2. Explicit provider request — requested first, then fallbacks
+        3. Cost ceiling — filter by max_cost if specified
+        4. Model support — providers that support the requested model
+        5. Fallback — any remaining available providers
+   """
 
-   # If user explicitly request a provider
+   # Private mode - only local inference
+   if request.private:
+      return [providers["ollama"]]
+   
+   # Explicit provider - requested first, then fallback
    if hasattr(request, 'provider') and request.provider:
       if request.provider in providers:
-         return providers[request.provider]
+         candidates = [providers[request.provider]]
+         for name, provider in providers.items():
+            if name != request.provider and provider.is_available():
+               candidates.append(provider)
+         return candidates
       
-   # Find provider that supports this model
+   # Cost aware ranking.  Filter by budget, sort cheapest first
+   provider_costs = settings.get("provider_costs", {})
+   candidates = []
+
    for name, provider in providers.items():
-      if provider.is_available() and provider.supports_model(request.model):
-         return provider
-      
-   # Fallback to Ollama (local, always available)
-   return providers.get("ollama")
+      if not provider.is_available() or not provider.supports_model(request.model):
+         continue
+      cost = provider_costs.get(name, {}).get("cost_per_1k_tokens", 0.0)
+      if request.max_cost is not None and cost > request.max_cost:
+         continue
+      candidates.append((cost, name, provider))
+
+   # Sort by cost ascending, lowest cost first
+   candidates.sort(key=lambda x: x[0])
+
+   if candidates:
+      return [provider for _, _, provider in candidates]
+   
+   # Fallback - return any available providers
+   return [p for p in providers.values() if p.is_available()] or [providers["ollama"]]
 
 @app.get("/health")
 def health_check():
@@ -164,7 +194,7 @@ async def chat_completions(request: ChatRequest) -> ChatResponse:
             status_code=400,
             detail={
                "error": "PII detected",
-               "message": pii_result.masked_text
+               "message": pii_result.message
             }
          )
       
@@ -187,16 +217,22 @@ async def chat_completions(request: ChatRequest) -> ChatResponse:
             }
          )
 
-   provider = select_providers(request)
+   # Try providers in ranked order, fallback on failure
+   candidates = rank_providers(request)
 
-   if not provider:
+   if not candidates:
       raise HTTPException(status_code=503, detail="No provider available")
    
-   if not provider.is_available():
-      raise HTTPException(
-         status_code=503,
-         detail=f"Provider {provider.name} is not configured"
-      )
-   
-   response = await provider.chat(request)
-   return response
+   last_error = None
+   for provider in candidates:
+      try:
+         response = await provider.chat(request)
+         return response
+      except Exception as e:
+         last_error = e
+         continue
+
+   raise HTTPException(
+      status_code=503,
+      detail=f"All providers failed.  Last error: {str(last_error)}"
+   )
