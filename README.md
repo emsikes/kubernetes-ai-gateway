@@ -20,8 +20,9 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 - **Multi-provider routing** - Single API, multiple backends (Bedrock, OpenAI, Anthropic, Ollama)
 - **OpenAI-compatible API** - Drop-in replacement for any OpenAI client
 - **Compliance-aware** - Route sensitive data to private inference, general queries to managed services
-- **Cost optimization** - Provider selection based on token costs and rate limits
+- **Cost optimization** - Provider selection based on configurable token costs with budget ceilings
 - **Content safety guardrails** - Config-driven moderation with PII protection and jailbreak detection
+- **Intelligent fallback** - Automatic failover through ranked provider candidates
 - **Cloud-native deployment** - EKS, ArgoCD, Terraform
 
 ### Architecture
@@ -33,7 +34,8 @@ This project demonstrates enterprise patterns for LLM infrastructure:
                             │  • Content safety guardrails         │
                             │  • PII detection & masking           │
                             │  • Jailbreak detection               │
-                            │  • Request routing logic             │
+                            │  • Cost-aware provider ranking       │
+                            │  • Fallback routing                  │
                             │  • Response caching (Redis)          │
                             │  • Cost tracking & audit logging     │
                             └────┬──────────┬──────────┬──────────┘
@@ -46,7 +48,7 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 │   (Claude)    │    │    (GPT)      │    │   (Claude)    │    │   (Local)     │
 ├───────────────┤    ├───────────────┤    ├───────────────┤    ├───────────────┤
 │ • Managed     │    │ • Highest     │    │ • Direct API  │    │ • Private VPC │
-│ • AWS-native  │    │   capability  │    │ • Alternative │    │ • PHI/HIPAA   │
+│ • AWS-native  │    │   capability  │    │ • Alternative │    │ • Local only  │
 │ • Pay-per-use │    │ • Enterprise  │    │   routing     │    │ • Fine-tuned  │
 └───────────────┘    └───────────────┘    └───────────────┘    └───────────────┘
 ```
@@ -56,11 +58,32 @@ This project demonstrates enterprise patterns for LLM infrastructure:
 Requests pass through three sequential guardrails before reaching any LLM provider:
 
 ```
-Request → Guard 1: Content Safety → Guard 2: PII Detection → Guard 3: Jailbreak Detection → Provider
-              │ keyword scan            │ regex scan              │ layered analysis
-              │ block harmful intent    │ block or redact PII     │ block injection attempts
-              ▼                         ▼                         ▼
-          400 Block                 400 Block/Redact          400 Block
+Request → Guard 1: Content Safety → Guard 2: PII Detection → Guard 3: Jailbreak Detection → Router
+              │ keyword scan            │ regex scan              │ layered analysis            │
+              │ block harmful intent    │ block or redact PII     │ block injection attempts    │
+              ▼                         ▼                         ▼                             ▼
+          400 Block                 400 Block/Redact          400 Block                  rank_providers()
+                                                                                         │
+                                                                              ┌──────────┼──────────┐
+                                                                              ▼          ▼          ▼
+                                                                          Provider 1  Provider 2  Provider N
+                                                                          (try first) (fallback)  (last resort)
+```
+
+### Routing Decision Flow
+
+```
+rank_providers(request)
+    │
+    ├─ private=true? → [Ollama only]
+    │
+    ├─ explicit provider? → [requested, then fallbacks]
+    │
+    ├─ max_cost set? → filter by budget, sort cheapest first
+    │
+    ├─ model match? → providers supporting model, sorted by cost
+    │
+    └─ fallback → any available provider → Ollama last resort
 ```
 
 ### When to Use Each Provider
@@ -70,7 +93,7 @@ Request → Guard 1: Content Safety → Guard 2: PII Detection → Guard 3: Jail
 | **AWS Bedrock** | Production workloads | Managed, scalable, AWS-native integration |
 | **OpenAI** | Highest capability needs | GPT-5.x for complex reasoning tasks |
 | **Anthropic** | Direct API fallback | Alternative routing, cost comparison |
-| **Ollama** | Sensitive data / compliance | PHI, HIPAA, air-gapped, fine-tuned models |
+| **Ollama** | Sensitive data / local dev | Private inference, air-gapped, fine-tuned models |
 
 ## Technology Stack
 
@@ -97,7 +120,7 @@ Request → Guard 1: Content Safety → Guard 2: PII Detection → Guard 3: Jail
 | 6 | Scaling | ✅ Complete | HPA, Metrics Server, Load Testing |
 | 7 | Ingress & Security | ✅ Complete | Ingress, NetworkPolicies, RBAC |
 | 8 | Provider Routing | ✅ Complete | Modular provider architecture, config-driven routing |
-| 9 | Router Enhancements | ⬜ Planned | Private routing, cost-based selection, fallback logic |
+| 9 | Router Enhancements | ✅ Complete | Private flag, cost-based ranking, fallback chains |
 | 10 | Guardrails Phase 1 | ✅ Complete | Content safety, prompt injection detection |
 | 11a | Guardrails Phase 2a | ✅ Complete | PII detection & masking (6 types, 3 strategies, 27 tests) |
 | 11b | Guardrails Phase 2b | ✅ Complete | Jailbreak detection (3 layers, confidence scoring, 16 tests) |
@@ -129,7 +152,7 @@ eval $(minikube docker-env)
 
 # Build API Gateway
 cd api-gateway
-docker build -t ai-gateway:v19 .
+docker build -t ai-gateway:v20 .
 
 # Deploy all services
 cd ../manifests/base
@@ -176,7 +199,7 @@ PYTHONPATH=. python tests/test_jailbreak_guard.py # Jailbreak detection (16 test
 | `/health` | GET | Health check for K8s probes |
 | `/config` | GET | Display current configuration |
 | `/providers` | GET | List configured LLM providers |
-| `/settings` | GET | Show routing settings |
+| `/settings` | GET | Show routing settings and provider costs |
 | `/v1/chat/completions` | POST | OpenAI-compatible chat endpoint |
 | `/redis-test` | GET | Verify cache connectivity |
 
@@ -216,6 +239,34 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   }
 }
 ```
+
+### Private Routing (Local Inference Only)
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Process this sensitive data"}],
+    "private": true
+  }'
+```
+
+Even though `gpt-4` would normally route to OpenAI, `private: true` forces Ollama — data never leaves the cluster.
+
+### Cost-Constrained Routing
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3.2",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "max_cost": 0.0
+  }'
+```
+
+With `max_cost: 0.0`, only free providers (Ollama) qualify. Setting `max_cost: 0.02` would include Bedrock but exclude OpenAI and Anthropic.
 
 ### Content Safety Response (Blocked Request)
 
@@ -265,8 +316,8 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 ```
 kubernetes-ai-gateway/
 ├── api-gateway/
-│   ├── main.py              # FastAPI app — 3 guards chained, provider routing
-│   ├── models.py            # Pydantic models (ChatRequest, ChatResponse)
+│   ├── main.py              # FastAPI app — 3 guards chained, ranked provider routing
+│   ├── models.py            # Pydantic models (ChatRequest with private/max_cost, ChatResponse)
 │   ├── providers/
 │   │   ├── __init__.py      # Provider exports
 │   │   ├── base.py          # LLMProvider abstract base class
@@ -294,7 +345,7 @@ kubernetes-ai-gateway/
 │   │   ├── api-gateway-hpa.yaml
 │   │   ├── api-gateway-ingress.yaml
 │   │   ├── api-gateway-rbac.yaml
-│   │   ├── gateway-settings.yaml    # Provider model routing config
+│   │   ├── gateway-settings.yaml    # Provider routing + cost config
 │   │   ├── guardrail-settings.yaml  # Content safety + PII + jailbreak config
 │   │   ├── redis-deployment.yaml
 │   │   ├── redis-service.yaml
@@ -315,7 +366,9 @@ kubernetes-ai-gateway/
 
 ## Provider Routing
 
-Model-to-provider mapping is configured via ConfigMap (`gateway-settings.yaml`):
+### Model-to-Provider Mapping
+
+Configured via ConfigMap (`gateway-settings.yaml`):
 
 ```json
 {
@@ -328,7 +381,32 @@ Model-to-provider mapping is configured via ConfigMap (`gateway-settings.yaml`):
 }
 ```
 
-The router automatically selects a provider based on the model name prefix. Update the ConfigMap to add new models without code changes.
+### Provider Cost Configuration
+
+Cost-per-1k-tokens drives the ranking algorithm when `max_cost` is specified:
+
+```json
+{
+  "provider_costs": {
+    "ollama":    { "cost_per_1k_tokens": 0.0,   "description": "Local inference, no API cost" },
+    "bedrock":   { "cost_per_1k_tokens": 0.02,  "description": "AWS managed pricing" },
+    "anthropic": { "cost_per_1k_tokens": 0.025, "description": "Claude class pricing" },
+    "openai":    { "cost_per_1k_tokens": 0.03,  "description": "GPT-4 class pricing" }
+  }
+}
+```
+
+### Routing Logic: `rank_providers()`
+
+The router was refactored from a single-provider selector to a ranked candidate list with automatic fallback. The endpoint iterates through candidates — if one provider fails, the next is tried automatically.
+
+**Priority order:**
+1. **Private flag** — `private: true` returns `[Ollama]` only, regardless of other parameters
+2. **Explicit provider** — requested provider first, all others as fallbacks
+3. **Cost + model match** — providers filtered by `max_cost` budget, sorted cheapest-first, must support the requested model
+4. **Fallback** — any available provider, with Ollama as last resort
+
+Update the ConfigMap to add new models or adjust costs without code changes.
 
 ## Guardrails Architecture
 
@@ -399,19 +477,20 @@ kubectl rollout restart deployment/api-gateway
 | Concern | Gateway Solution |
 |---------|------------------|
 | **Vendor lock-in** | Swap providers without code changes |
-| **Cost control** | Centralized tracking and routing |
-| **Compliance** | Route PHI to private inference |
-| **Reliability** | Fallback providers, caching |
+| **Cost control** | Centralized tracking, budget ceilings, cost-ranked routing |
+| **Compliance** | Private flag forces local-only inference |
+| **Reliability** | Ranked fallback chains, automatic failover |
 | **Observability** | Unified logging and metrics |
 
 ### Why Self-Hosted Ollama?
 
-Not a replacement for Bedrock - a complement for specific cases:
+Not a replacement for managed providers — a complement for specific cases:
 
-- **Healthcare/PHI**: Data never leaves your VPC
+- **Sensitive data**: Data never leaves your cluster when `private: true`
 - **Fine-tuned models**: Custom models not available in managed services
-- **Air-gapped environments**: No external API access
+- **Air-gapped environments**: No external API access required
 - **Development**: Fast iteration without API costs
+- **Fallback**: Always-available last resort when external providers fail
 
 ### Why Config-Driven Guardrails?
 
@@ -420,6 +499,10 @@ Not a replacement for Bedrock - a complement for specific cases:
 - **Audit-friendly** - Configuration changes tracked in Git
 - **Rapid response** - Block new threats without deployment
 - **Per-type tuning** - Each PII type and jailbreak layer independently configurable
+
+### Why Ranked Fallback Instead of Single Provider Selection?
+
+The original `select_providers()` returned one provider — if it failed, the request failed. The refactored `rank_providers()` returns a priority-ordered list of candidates. The endpoint iterates through them, catching failures and trying the next provider automatically. This means a misconfigured API key or a provider outage doesn't take down the gateway — it just falls through to the next option.
 
 ## Security Features
 
@@ -485,10 +568,10 @@ See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this
 - [x] Guardrails Phase 1: Content safety guard
 - [x] Guardrails Phase 2a: PII detection & masking (6 types, 3 strategies)
 - [x] Guardrails Phase 2b: Jailbreak detection (3 layers, confidence scoring)
+- [x] Router enhancements: private flag, cost-based ranking, fallback chains
 - [ ] OpenAI provider (built, needs testing)
 - [ ] Anthropic provider
 - [ ] AWS Bedrock provider
-- [ ] Router enhancements (private flag, max_cost, fallback)
 - [ ] EKS deployment with Route53 DNS
 - [ ] ArgoCD GitOps
 - [ ] Terraform automation

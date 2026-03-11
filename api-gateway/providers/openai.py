@@ -57,6 +57,7 @@ class OpenAIProvider(LLMProvider):
                 object="chat.completion",
                 created=int(time.time()),
                 model=request.model,
+                provider=self.name,
                 choices=[
                     ChatChoice(
                         index=0,

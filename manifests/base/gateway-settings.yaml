@@ -23,5 +23,23 @@ data:
         "anthropic": ["claude"],
         "bedrock": ["amazon", "anthropic.claude", "meta.llama"],
         "ollama": ["llama", "mistral", "codellama", "phi", "neural_chat", "vicuna", "qwen"]
+      },
+      "provider_costs": {
+        "ollama": {
+          "cost_per_1k_tokens": 0.0,
+          "description": "Local inference, no API cost"
+        },
+        "openai": {
+          "cost_per_1k_tokens": 0.03,
+          "description": "GPT-4 class pricing"
+        },
+        "anthropic": {
+          "cost_per_1k_tokens": 0.025,
+          "description": "Claude class pricing"
+        },
+        "bedrock": {
+          "cost_per_1k_tokens": 0.02,
+          "description": "AWS managed pricing"
+        }
       }
     }

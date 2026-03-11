@@ -32,9 +32,11 @@ class LLMProvider(ABC):
       
       model_lower = model.lower()
 
-      # Special case: Ollama models often have a ":" (e.g. llama3.2:1b)
-      if ":" in model:
-         return True
+      for prefix in self._model_prefixes:
+         if model_lower.startswith(prefix.lower()):
+            return True
+         
+      return False
    
    def log_usage(self, response: ChatResponse):
       """Track tokens and requests in Redis"""
