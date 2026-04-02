@@ -91,7 +91,7 @@ rank_providers(request)
 | Provider | Use Case | Why |
 |----------|----------|-----|
 | **AWS Bedrock** | Production workloads | Managed, scalable, AWS-native integration |
-| **OpenAI** | Highest capability needs | GPT-5.x for complex reasoning tasks |
+| **OpenAI** | Highest capability needs | GPT-4.x/5.x for complex reasoning tasks |
 | **Anthropic** | Direct API fallback | Alternative routing, cost comparison |
 | **Ollama** | Sensitive data / local dev | Private inference, air-gapped, fine-tuned models |
 
@@ -100,6 +100,7 @@ rank_providers(request)
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Orchestration** | Kubernetes (EKS) | Container orchestration |
+| **Container Registry** | Amazon ECR | Container image storage |
 | **GitOps** | ArgoCD | Declarative deployments |
 | **Infrastructure** | Terraform | IaC for reproducible environments |
 | **API Gateway** | FastAPI | Request routing, auth, caching |
@@ -124,7 +125,7 @@ rank_providers(request)
 | 10 | Guardrails Phase 1 | ✅ Complete | Content safety, prompt injection detection |
 | 11a | Guardrails Phase 2a | ✅ Complete | PII detection & masking (6 types, 3 strategies, 27 tests) |
 | 11b | Guardrails Phase 2b | ✅ Complete | Jailbreak detection (3 layers, confidence scoring, 16 tests) |
-| 12 | EKS Deployment | ⬜ Planned | Production cloud deployment with Route53 |
+| 12 | EKS Deployment | 🔧 In Progress | ECR repo created, image pushed, prod overlay configured |
 | 13 | ArgoCD GitOps | ⬜ Planned | Declarative application delivery |
 | 14 | Terraform IaC | ⬜ Planned | Infrastructure as Code |
 
@@ -135,7 +136,8 @@ rank_providers(request)
 - Docker
 - minikube
 - kubectl
-- AWS CLI (for Bedrock integration)
+- AWS CLI (for EKS and Bedrock integration)
+- eksctl (for EKS cluster management)
 
 ### Quick Start
 
@@ -152,7 +154,7 @@ eval $(minikube docker-env)
 
 # Build API Gateway
 cd api-gateway
-docker build -t ai-gateway:v20 .
+docker build -t ai-gateway:v21 .
 
 # Deploy all services
 cd ../manifests/base
@@ -169,7 +171,32 @@ curl http://localhost:8080/health
 curl http://localhost:8080/providers
 ```
 
-### Enable Addons (for full functionality)
+### EKS Deployment
+
+```bash
+# Create the EKS cluster (takes ~15 minutes)
+eksctl create cluster -f eks/cluster.yaml
+
+# Update kubeconfig
+aws eks update-kubeconfig --name ai-gateway --region us-west-2
+
+# Create namespace
+kubectl create namespace ai-gateway
+kubectl config set-context --current --namespace=ai-gateway
+
+# Push image to ECR
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.us-west-2.amazonaws.com
+docker tag ai-gateway:v21 <account-id>.dkr.ecr.us-west-2.amazonaws.com/ai-gateway:v21
+docker push <account-id>.dkr.ecr.us-west-2.amazonaws.com/ai-gateway:v21
+
+# Deploy using prod overlay
+kubectl apply -k manifests/overlays/prod/
+
+# Tear down when done (stops all charges)
+eksctl delete cluster --name ai-gateway --region us-west-2
+```
+
+### Enable Addons (minikube — for full local functionality)
 
 ```bash
 # Metrics for HPA
@@ -320,9 +347,9 @@ kubernetes-ai-gateway/
 │   ├── models.py            # Pydantic models (ChatRequest with private/max_cost, ChatResponse)
 │   ├── providers/
 │   │   ├── __init__.py      # Provider exports
-│   │   ├── base.py          # LLMProvider abstract base class
+│   │   ├── base.py          # LLMProvider ABC with supports_model prefix matching
 │   │   ├── ollama.py        # Ollama provider implementation
-│   │   └── openai.py        # OpenAI provider implementation
+│   │   └── openai.py        # OpenAI provider implementation (tested)
 │   ├── guardrails/
 │   │   ├── __init__.py      # Guardrail exports
 │   │   ├── base.py          # GuardrailBase ABC, enums, GuardrailResult
@@ -336,6 +363,8 @@ kubernetes-ai-gateway/
 │   │   └── test_jailbreak_guard.py # Jailbreak guard tests (16 passing)
 │   ├── requirements.txt
 │   └── Dockerfile
+├── eks/
+│   └── cluster.yaml         # eksctl cluster config (3x t3.medium, us-west-2)
 ├── manifests/
 │   ├── base/
 │   │   ├── kustomization.yaml
@@ -358,6 +387,7 @@ kubernetes-ai-gateway/
 │   └── overlays/
 │       ├── dev/
 │       └── prod/
+│           └── kustomization.yaml   # ECR image, 3 replicas, prod log level
 ├── terraform/           # Coming Phase 14
 ├── argocd/              # Coming Phase 13
 ├── CKAD-CHEATSHEET.md
@@ -564,15 +594,16 @@ See [CKAD-CHEATSHEET.md](./CKAD-CHEATSHEET.md) for exam tips learned during this
 - [x] Modular provider architecture
 - [x] Config-driven model routing
 - [x] Ollama provider with OpenAI-compatible API
+- [x] OpenAI provider (live-tested with real API calls)
 - [x] Redis usage metrics per provider
 - [x] Guardrails Phase 1: Content safety guard
 - [x] Guardrails Phase 2a: PII detection & masking (6 types, 3 strategies)
 - [x] Guardrails Phase 2b: Jailbreak detection (3 layers, confidence scoring)
 - [x] Router enhancements: private flag, cost-based ranking, fallback chains
-- [ ] OpenAI provider (built, needs testing)
+- [x] ECR repository created, image pushed
+- [ ] EKS deployment (cluster config ready, prod overlay configured)
 - [ ] Anthropic provider
 - [ ] AWS Bedrock provider
-- [ ] EKS deployment with Route53 DNS
 - [ ] ArgoCD GitOps
 - [ ] Terraform automation
 
