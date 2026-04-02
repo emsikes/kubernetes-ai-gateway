@@ -29,3 +29,6 @@ Thumbs.db
 # Kubernetes secrets (never commit these)
 *-secret.yaml
 *-secrets.yaml
+
+# Binaries
+kubectl
